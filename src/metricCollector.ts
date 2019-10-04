@@ -1,8 +1,9 @@
 import bull from 'bull';
 import * as Logger from 'bunyan';
 import { EventEmitter } from 'events';
-import IoRedis from 'ioredis';
+import IoRedis, { RedisOptions } from 'ioredis';
 import { register as globalRegister, Registry } from 'prom-client';
+import { URL } from 'url';
 
 import { logger as globalLogger } from './logger';
 import { getJobCompleteStats, getStats, makeGuages, QueueGauges } from './queueGauges';
@@ -44,7 +45,18 @@ export class MetricCollector {
   ) {
     const { logger, autoDiscover, redis, metricPrefix, ...bullOpts } = opts;
     this.redisUri = redis;
-    this.defaultRedisClient = new IoRedis(this.redisUri);
+    const { hostname: host, password, port, protocol } = new URL(
+      this.redisUri
+    )
+    const redisPort = parseInt(port, 10) || 6379
+    const redisOpts =
+      protocol === "sentinel:"
+        ? {
+            sentinels: [{ host, port: redisPort }],
+            password: password || undefined,
+          }
+        : (this.redisUri as RedisOptions)
+    this.defaultRedisClient = new IoRedis(redisOpts)
     this.defaultRedisClient.setMaxListeners(32);
     this.bullOpts = bullOpts;
     this.logger = logger || globalLogger;
