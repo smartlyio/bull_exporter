@@ -1,0 +1,185 @@
+# IMPORTANT NOTE/WARNING!
+# Do not make changes to this file, your changes will be overwritten.
+#
+# This file is automagically generated from:
+# - .github/templates/master_push.yml.erb
+# - Templates contained in the smartlyio/github-actions-templates repository
+#
+# This file can be updated by editing the template file, and running `devbox render workflows`
+
+name: Master Push
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Read .node-version
+        run: echo ::set-output name=NODE_VERSION::$(cat .node-version || echo '12.16.3')
+        id: node-version
+      - name: Setup node version
+        uses: actions/setup-node@v1
+        with:
+          node-version: '${{ steps.node-version.outputs.NODE_VERSION }}'
+      - uses: actions/cache@v2
+        id: cache-node-modules
+        with:
+          path: |
+            .yarn-meta
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-node-${{ steps.node-version.outputs.NODE_VERSION }}-${{ hashFiles('**/yarn.lock') }}
+      - name: yarn install
+        run: yarn run ci:install
+      - name: Run Linting Tools
+        run: yarn lint -f junit -o eslint.xml
+      - name: Create an annotation of the build information
+        uses: ashley-taylor/junit-report-annotations-action@9ac2f823854c677f30e062dfe779445e33e5d380
+        if: ${{ always() }}
+        with:
+          access-token: ${{ secrets.GITHUB_TOKEN }}
+          path: "eslint.xml"
+          name: "Lint Results"
+
+  test:
+    name: Tests
+    runs-on: [self-hosted, aws]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Login to docker registry dev.smartly.af
+        uses: docker/login-action@v1
+        with:
+          registry: dev.smartly.af
+          username: ${{ secrets.ARTIFACTORY_DOCKER_USERNAME }}
+          password: ${{ secrets.ARTIFACTORY_DOCKER_PASSWORD }}
+      - name: Login to docker hub registry
+        uses: docker/login-action@v1
+        with:
+          # No registry specification required for dockerhub, it's the default
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Unit tests with docker-compose
+        id: compose_run
+        uses: smartlyio/docker-compose-action@v1
+        with:
+          composeFile: docker-compose.ci.yml
+          serviceName: test
+          build: true
+          push: "on:push"
+      - name: Gather and show results
+        if: ${{ always() }}
+        env:
+          CONTAINER_ID: "${{ steps.compose_run.outputs.container_id }}"
+        run: |
+          if [ ! -z "$CONTAINER_ID" ]; then
+            docker cp "${CONTAINER_ID}:/test-output/test-report.xml" "test-report.xml"
+            docker cp "${CONTAINER_ID}:/test-output/coverage/." "coverage"
+          else
+            echo "Failed to find previous container, did it run?"
+            exit 1
+          fi
+      - name: Upload results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: test_results
+          path: |
+            coverage/*
+      - name: Create an annotation of the build information
+        uses: ashley-taylor/junit-report-annotations-action@9ac2f823854c677f30e062dfe779445e33e5d380
+        if: ${{ always() }}
+        with:
+          access-token: ${{ secrets.GITHUB_TOKEN }}
+          path: "test-report.xml"
+          name: "Test Results"
+
+
+  image-build:
+    name: Check that image builds successfuly
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Login to docker registry dev.smartly.af
+        uses: docker/login-action@v1
+        with:
+          registry: dev.smartly.af
+          username: ${{ secrets.ARTIFACTORY_DOCKER_USERNAME }}
+          password: ${{ secrets.ARTIFACTORY_DOCKER_PASSWORD }}
+      - name: Login to docker hub registry
+        uses: docker/login-action@v1
+        with:
+          # No registry specification required for dockerhub, it's the default
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to docker registry prod.smartly.af
+        uses: docker/login-action@v1
+        with:
+          registry: prod.smartly.af
+          username: ${{ secrets.ARTIFACTORY_DOCKER_USERNAME }}
+          password: ${{ secrets.ARTIFACTORY_DOCKER_PASSWORD }}
+      - name: Get Repository Name
+        id: get_repository_name
+        run: |
+          REPO_NAME="$(echo "$GITHUB_REPOSITORY" | awk -F / '{print $2}' | sed -e "s/:refs//")"
+          echo REPOSITORY_NAME="$REPO_NAME" >> "$GITHUB_ENV"
+          echo ::set-output name=repository_name::"$REPO_NAME"
+      - name: Check if we're going to push the image
+        id: check_continue_push
+        run: |
+          # Moved logic here as it's easier to determine what's going on if we decide what to do in one place
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            echo ::set-output name=continue_push::"true"
+          else
+            echo ::set-output name=continue_push::"false"
+          fi
+      - name: Define image name
+        id: define_image_name
+        run: |
+          # Set name once in one place
+          echo ::set-output name=image_name::${{ steps.get_repository_name.outputs.repository_name }}
+      # We build and push to dev.smartly.af first since that gets us a stored cache
+      - name: Build With Cache & Push Image to dev.smartly.af
+        uses: smartlyio/docker-build-with-cache-action@master
+        with:
+          registry: dev.smartly.af
+          image_name: ${{ steps.define_image_name.outputs.image_name }}
+          image_tag: ${{ github.sha }},cache-latest
+          push_image_and_stages: ${{ steps.check_continue_push.outputs.continue_push }}
+          username: ${{ secrets.ARTIFACTORY_DOCKER_USERNAME }}
+          password: ${{ secrets.ARTIFACTORY_DOCKER_PASSWORD }}
+          dockerfile: Dockerfile
+          build_extra_args: "--pull"
+      - name: ReTag and Push Production Image
+        if: steps.check_continue_push.outputs.continue_push == 'true'
+        run: |
+          CURRENT_TAG="dev.smartly.af/${{ steps.define_image_name.outputs.image_name }}:${{ github.sha }}"
+          NEW_IMAGE_NAME="prod.smartly.af/${{ steps.define_image_name.outputs.image_name }}:${{ github.sha }}"
+          docker tag "$CURRENT_TAG" "$NEW_IMAGE_NAME"
+          docker push "$NEW_IMAGE_NAME"
+
+  notify:
+    if: ${{ always() }}
+    runs-on: ubuntu-18.04
+    needs: ["lint", "test", "image-build"]
+    steps:
+      - name: Notify Slack Channels
+        if: "!contains(github.event.head_commit.author.name, 'Github Action') && needs.publish.outputs.result != 'cancelled'"
+        uses: smartlyio/workflow-webhook@v1
+        with:
+          webhook_url: "https://slack-notify.kube-intra1.smartly.io/api/webhook"
+          webhook_auth: "${{ secrets.SLACK_NOTIFY_TOKEN }}"
+          webhook_secret: "${{ secrets.SLACK_NOTIFY_HMAC_SECRET }}"
+          data: |
+            {
+              "channels": ["dev-chatops"],
+              "jobs": ${{ toJson(needs) }},
+              "user": "${{ github.actor }}",
+              "run_id": ${{ github.run_id }}
+            }
+
