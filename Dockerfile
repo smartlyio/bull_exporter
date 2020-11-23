@@ -10,6 +10,7 @@ RUN yarn install --pure-lockfile
 COPY . .
 RUN node_modules/.bin/tsc -p .
 RUN yarn install --pure-lockfile --production
+RUN yarn run build
 
 FROM node:10-alpine
 RUN apk --no-cache add tini bash

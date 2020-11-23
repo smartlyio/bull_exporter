@@ -59,14 +59,17 @@ export async function makeServer(opts: Options): Promise<express.Application> {
     logger,
     metricPrefix: opts.metricPrefix,
     redis: opts.url,
+    sentinelExtraEndpoints: opts.sentinelExtraEndpoints,
+    sentinelMasterName: opts.sentinelMasterName,
     prefix: opts.prefix,
     autoDiscover: opts.autoDiscover,
   });
-  collector.collectJobCompletions();
 
   if (opts.autoDiscover) {
     await collector.discoverAll();
   }
+
+  collector.collectJobCompletions();
 
   app.post('/discover_queues', (_req: express.Request, res: express.Response, next: express.NextFunction) => {
     collector.discoverAll()

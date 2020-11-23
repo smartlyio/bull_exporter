@@ -1,6 +1,7 @@
 {
   "extends": [
-    "config:base"
+    "config:base",
+    "group:allNonMajor"
   ],
   "docker": {
     "enabled": false
@@ -13,5 +14,12 @@
   "schedule": [
     "after 9am and before 3pm",
     "every weekday"
-  ]
+  ],
+  "packageRules": [{
+    "groupName": "jest monorepo",
+    "packageNames": ["@types/jest", "@types/expect", "ts-jest"],
+    "sourceUrlPrefixes": [
+      "https://github.com/facebook/jest"
+    ]
+  }]
 }

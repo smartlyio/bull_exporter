@@ -1,0 +1,16 @@
+name: Master Push
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  @import ./jobs/lint
+
+  @import ./jobs/test
+
+  @import smartlyio/jobs/docker/build (build_needs: ["lint", "test"])
+
+  @import smartlyio/jobs/publish/notify (publish_notify_needs: ["lint", "test", "image-build"])
+

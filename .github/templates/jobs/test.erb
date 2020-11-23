@@ -1,0 +1,41 @@
+test:
+  name: Tests
+  runs-on: [self-hosted, aws]
+  steps:
+    - uses: actions/checkout@v2
+    @import ../smartlyio/steps/docker/login (docker_registry: "dev.smartly.af")
+    - name: Unit tests with docker-compose
+      id: compose_run
+      uses: smartlyio/docker-compose-action@v1
+      with:
+        composeFile: docker-compose.ci.yml
+        serviceName: test
+        build: true
+        push: "on:push"
+    - name: Gather and show results
+      if: ${{ always() }}
+      env:
+        CONTAINER_ID: "${{ steps.compose_run.outputs.container_id }}"
+      run: |
+        if [ ! -z "$CONTAINER_ID" ]; then
+          docker cp "${CONTAINER_ID}:/test-output/test-report.xml" "test-report.xml"
+          docker cp "${CONTAINER_ID}:/test-output/coverage/." "coverage"
+        else
+          echo "Failed to find previous container, did it run?"
+          exit 1
+        fi
+    - name: Upload results
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: test_results
+        path: |
+          coverage/*
+    - name: Create an annotation of the build information
+      uses: ashley-taylor/junit-report-annotations-action@9ac2f823854c677f30e062dfe779445e33e5d380
+      if: ${{ always() }}
+      with:
+        access-token: ${{ secrets.GITHUB_TOKEN }}
+        path: "test-report.xml"
+        name: "Test Results"
+

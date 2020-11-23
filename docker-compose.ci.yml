@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:4.0-alpine
+    healthcheck:
+      test: "[ $$(redis-cli ping) == 'PONG' ]"
+      interval: 5s
+  test:
+    image: 'dev.smartly.af/test-bull-eex:latest-master'
+    build:
+      context: .
+      cache_from:
+        - 'dev.smartly.af/test-mosby-image:latest-master'
+    depends_on:
+      - redis
+    cmd:
+      - yarn
+      - run
+      - test
+
