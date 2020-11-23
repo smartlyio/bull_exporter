@@ -39,13 +39,6 @@ jobs:
         run: yarn run ci:install
       - name: Run Linting Tools
         run: yarn lint -o eslint.xml
-      - name: Create an annotation of the build information
-        uses: ashley-taylor/junit-report-annotations-action@9ac2f823854c677f30e062dfe779445e33e5d380
-        if: ${{ always() }}
-        with:
-          access-token: ${{ secrets.GITHUB_TOKEN }}
-          path: "eslint.xml"
-          name: "Lint Results"
 
   test:
     name: Tests
