@@ -42,7 +42,7 @@ jobs:
 
   test:
     name: Tests
-    runs-on: [self-hosted, aws]
+    runs-on: ubuntu-18.04
     steps:
       - uses: actions/checkout@v2
       - name: Login to docker registry dev.smartly.af
